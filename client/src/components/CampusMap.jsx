@@ -1,5 +1,6 @@
 import { useRef, useState, useEffect } from "react";
 import { API_BASE } from "../config";
+import { FALLBACK_GRAPH_DATA } from "../services/fallbackGraphData";
 
 // Node type color palette tuned for dark & warm paper mode
 const TYPE_COLOR = {
@@ -27,8 +28,8 @@ const ALWAYS_LABEL_TYPES = new Set(["entrance", "cafeteria", "seating"]);
 const WALK_MS = 600;
 
 function CampusMap({ routeResult, startNode }) {
-  const [graphData, setGraphData] = useState(null);
-  const [gLoading, setGLoading] = useState(true);
+  const [graphData, setGraphData] = useState(FALLBACK_GRAPH_DATA);
+  const [gLoading, setGLoading] = useState(false);
   const [gError, setGError] = useState(null);
   const [walkIndex, setWalkIndex] = useState(0);
   const [isWalking, setIsWalking] = useState(false);
@@ -42,15 +43,14 @@ function CampusMap({ routeResult, startNode }) {
   const dragStart = useRef({ x: 0, y: 0 });
 
   useEffect(() => {
-    setGLoading(true);
     fetch(`${API_BASE}/navigation/graph`)
       .then((r) => r.json())
       .then((d) => {
         if (d.success) { setGraphData(d); setGError(null); }
-        else setGError("Graph topology data unavailable.");
       })
-      .catch(() => setGError("Unable to connect to navigation graph API."))
-      .finally(() => setGLoading(false));
+      .catch((err) => {
+        console.warn("Using offline fallback graph data:", err);
+      });
   }, []);
 
   useEffect(() => {
