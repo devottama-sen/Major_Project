@@ -32,6 +32,7 @@ function CampusMap({ routeResult, startNode }) {
   const [gError, setGError] = useState(null);
   const [walkIndex, setWalkIndex] = useState(0);
   const [isWalking, setIsWalking] = useState(false);
+  const [hoveredNode, setHoveredNode] = useState(null);
   const walkTimer = useRef(null);
 
   // Zoom & Pan state
@@ -188,12 +189,14 @@ function CampusMap({ routeResult, startNode }) {
   }
 
   function showLabel(id, node) {
+    if (!node.label) return false;
     if (id === currentPos?.nodeId) return true;
     if (id === destination?.nodeId) return true;
-    if (routeNodeSet.has(id) && node.label) return true;
-    if (ALWAYS_LABEL_TYPES.has(node.type) && node.label) return true;
-    if (node.type === "lift" && node.label) return true;
-    return false;
+    if (routeNodeSet.has(id)) return true;
+    if (ALWAYS_LABEL_TYPES.has(node.type)) return true;
+    if (node.type === "lift") return true;
+    if (hoveredNode === id) return true;
+    return zoom >= 1.3;
   }
 
   const hasRoute = route.length > 1;
@@ -201,6 +204,51 @@ function CampusMap({ routeResult, startNode }) {
   const sortedNodes = Object.entries(graphData.nodes)
     .map(([id, node]) => ({ id, node, ...nodeProps(id, node) }))
     .sort((a, b) => a.zOrder - b.zOrder);
+
+  // Compute collision-free label coordinates
+  const labelPositions = {};
+  const placedRects = [];
+
+  sortedNodes.forEach(({ id, node, r }) => {
+    if (!showLabel(id, node)) return;
+    const text = node.label || "";
+    if (!text) return;
+
+    const approxWidth = text.length * 11 + 16;
+    const approxHeight = 24;
+
+    const candidates = [
+      { yOff: r + 22, xOff: 0, anchor: "middle" },
+      { yOff: -(r + 14), xOff: 0, anchor: "middle" },
+      { yOff: 4, xOff: r + 14, anchor: "start" },
+      { yOff: 4, xOff: -(r + 14), anchor: "end" },
+    ];
+
+    let chosen = candidates[0];
+    for (const cand of candidates) {
+      const cx = node.x + cand.xOff;
+      const cy = node.y + cand.yOff;
+      const rect = {
+        left: cx - (cand.anchor === "middle" ? approxWidth / 2 : cand.anchor === "start" ? 0 : approxWidth),
+        right: cx + (cand.anchor === "middle" ? approxWidth / 2 : cand.anchor === "start" ? approxWidth : 0),
+        top: cy - approxHeight / 2,
+        bottom: cy + approxHeight / 2,
+      };
+
+      const hasOverlap = placedRects.some(
+        (pr) =>
+          !(rect.right < pr.left || rect.left > pr.right || rect.bottom < pr.top || rect.top > pr.bottom)
+      );
+
+      if (!hasOverlap) {
+        chosen = cand;
+        placedRects.push(rect);
+        break;
+      }
+    }
+
+    labelPositions[id] = chosen;
+  });
 
   return (
     <div className="map-container">
@@ -218,7 +266,7 @@ function CampusMap({ routeResult, startNode }) {
             {destination ? (
               <p className="map-target-text">Target: <strong>{destination.label || destination.type}</strong></p>
             ) : (
-              <p className="map-target-text">Select a destination to calculate route</p>
+              <p className="map-target-text">Select a destination or hover nodes to inspect</p>
             )}
           </div>
         </div>
@@ -247,7 +295,7 @@ function CampusMap({ routeResult, startNode }) {
         onTouchStart={handlePointerDown}
         onTouchMove={handlePointerMove}
         onTouchEnd={handlePointerUp}
-        style={{ cursor: isDragging ? "grabbing" : "grab" }}
+        style={{ cursor: isDragging ? "grabbing" : "grab", minHeight: "520px", height: "520px" }}
       >
         <div className="map-zoom-controls">
           <button className="zoom-btn" onClick={handleZoomIn} title="Zoom In">
@@ -272,7 +320,7 @@ function CampusMap({ routeResult, startNode }) {
         <svg
           viewBox={`${vMinX} ${vMinY} ${zoomedW} ${zoomedH}`}
           preserveAspectRatio="xMidYMid meet"
-          style={{ width: "100%", height: "100%", display: "block" }}
+          style={{ width: "100%", height: "100%", minHeight: "520px", display: "block" }}
         >
           {/* Base graph edges */}
           {graphData.edges.map(([a, b], i) => {
@@ -323,9 +371,14 @@ function CampusMap({ routeResult, startNode }) {
           {sortedNodes.map(({ id, node, r, fill, stroke, sw, opacity }) => {
             const isCurrentPos = id === currentPos?.nodeId || (route.length === 0 && id === DEFAULT_START.nodeId);
             const showLbl = showLabel(id, node);
+            const pos = labelPositions[id] || { yOff: r + 22, xOff: 0, anchor: "middle" };
 
             return (
-              <g key={id}>
+              <g
+                key={id}
+                onMouseEnter={() => setHoveredNode(id)}
+                onMouseLeave={() => setHoveredNode(null)}
+              >
                 {isCurrentPos && (
                   <>
                     <circle cx={node.x} cy={node.y} r={r + 14} fill="#38bdf8" opacity="0.15">
@@ -342,18 +395,20 @@ function CampusMap({ routeResult, startNode }) {
                 />
 
                 {showLbl && node.label && (
-                  <text
-                    x={node.x} y={node.y + r + 24}
-                    textAnchor="middle"
-                    fontSize={isCurrentPos || id === destination?.nodeId ? 24 : 18}
-                    fontWeight={isCurrentPos || id === destination?.nodeId ? "700" : "500"}
-                    fill={isCurrentPos ? "#38bdf8" : id === destination?.nodeId ? "#f43f5e" : "var(--text-secondary)"}
-                    fontFamily="Inter, system-ui, sans-serif"
-                    paintOrder="stroke"
-                    stroke="var(--graph-text-stroke)" strokeWidth="6"
-                  >
-                    {node.label}
-                  </text>
+                  <g transform={`translate(${node.x + pos.xOff}, ${node.y + pos.yOff})`}>
+                    <text
+                      x={0} y={0}
+                      textAnchor={pos.anchor}
+                      fontSize={isCurrentPos || id === destination?.nodeId ? 22 : 16}
+                      fontWeight={isCurrentPos || id === destination?.nodeId ? "700" : "600"}
+                      fill={isCurrentPos ? "#38bdf8" : id === destination?.nodeId ? "#f43f5e" : "var(--text-primary)"}
+                      fontFamily="Inter, system-ui, sans-serif"
+                      paintOrder="stroke"
+                      stroke="var(--graph-text-stroke)" strokeWidth="6"
+                    >
+                      {node.label}
+                    </text>
+                  </g>
                 )}
               </g>
             );

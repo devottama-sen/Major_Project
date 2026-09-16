@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect } from "react";
 import CampusMap from "./components/CampusMap";
 import VoiceAssistant from "./components/VoiceAssistant";
+import ARNavigation from "./components/ARNavigation";
 import { getRoute, getNearest } from "./services/navigationApi";
 import { API_BASE } from "./config";
 
@@ -99,7 +100,7 @@ async function aiChat(message, currentNodeId) {
 }
 
 function App() {
-  const [currentNodeId] = useState(DEFAULT_NODE_ID);
+  const [currentNodeId, setCurrentNodeId] = useState(DEFAULT_NODE_ID);
   const [routeResult, setRouteResult] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -108,6 +109,8 @@ function App() {
   const [response, setResponse] = useState("");
   const [showVoice, setShowVoice] = useState(false);
   const [showPoisModal, setShowPoisModal] = useState(false);
+  const [showArModal, setShowArModal] = useState(false);
+  const [viewMode, setViewMode] = useState("2d"); // "2d" | "ar" | "split"
 
   // Theme state: "dark" | "light" | "system"
   const [themeMode, setThemeMode] = useState(() => {
@@ -398,16 +401,82 @@ function App() {
                 </svg>
               )}
             </div>
-            <div className="response-content">
-              <h4>{error ? "Navigation Alert" : "Assistant Guidance"}</h4>
+            <div className="response-content" style={{ flex: 1 }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "0.5rem" }}>
+                <h4>{error ? "Navigation Alert" : "Assistant Guidance"}</h4>
+                {routeResult && (
+                  <button
+                    className="ar-launch-pill-btn"
+                    onClick={() => setShowArModal(true)}
+                  >
+                    ✨ Launch 3D AR Navigation
+                  </button>
+                )}
+              </div>
               <p>{renderResponse(response)}</p>
             </div>
           </div>
         )}
 
-        {/* Interactive Map */}
+        {/* Interactive Map & AR View Switcher */}
         <section id="map-section">
-          <CampusMap routeResult={routeResult} startNode={null} />
+          <div className="view-mode-tabs">
+            <button
+              className={`view-mode-tab ${viewMode === "2d" ? "active" : ""}`}
+              onClick={() => setViewMode("2d")}
+            >
+              🗺️ 2D Topology Map
+            </button>
+            <button
+              className={`view-mode-tab ${viewMode === "ar" ? "active" : ""}`}
+              onClick={() => setViewMode("ar")}
+            >
+              ✨ 3D WebAR (ARCore)
+            </button>
+            <button
+              className={`view-mode-tab ${viewMode === "split" ? "active" : ""}`}
+              onClick={() => setViewMode("split")}
+            >
+              📱 Split View
+            </button>
+          </div>
+
+          {viewMode === "2d" && (
+            <CampusMap
+              routeResult={routeResult}
+              startNode={null}
+            />
+          )}
+
+          {viewMode === "ar" && (
+            <div style={{ height: "650px", position: "relative", borderRadius: "16px", overflow: "hidden" }}>
+              <ARNavigation
+                routeResult={routeResult}
+                startNode={currentNodeId}
+                onClose={() => setViewMode("2d")}
+                onNodeSelect={(nodeId) => setCurrentNodeId(nodeId)}
+              />
+            </div>
+          )}
+
+          {viewMode === "split" && (
+            <div className="split-view-container">
+              <div className="split-view-map">
+                <CampusMap
+                  routeResult={routeResult}
+                  startNode={null}
+                />
+              </div>
+              <div className="split-view-ar" style={{ height: "480px", position: "relative", borderRadius: "16px", overflow: "hidden" }}>
+                <ARNavigation
+                  routeResult={routeResult}
+                  startNode={currentNodeId}
+                  onClose={() => setViewMode("2d")}
+                  onNodeSelect={(nodeId) => setCurrentNodeId(nodeId)}
+                />
+              </div>
+            </div>
+          )}
         </section>
       </main>
 
@@ -455,6 +524,18 @@ function App() {
         </div>
       )}
 
+      {/* Full-Screen WebAR Navigation Overlay Modal */}
+      {showArModal && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 9999, backgroundColor: "#000" }}>
+          <ARNavigation
+            routeResult={routeResult}
+            startNode={currentNodeId}
+            onClose={() => setShowArModal(false)}
+            onNodeSelect={(nodeId) => setCurrentNodeId(nodeId)}
+          />
+        </div>
+      )}
+
       {/* Slide-Up Voice Assistant Drawer */}
       {showVoice && (
         <VoiceAssistant
@@ -474,6 +555,11 @@ function App() {
             <line x1="16" y1="6" x2="16" y2="22"/>
           </svg>
           <span>Map</span>
+        </button>
+
+        <button className="bottom-nav-item" onClick={() => setShowArModal(true)}>
+          <span style={{ fontSize: "1.2rem" }}>✨</span>
+          <span>3D AR</span>
         </button>
 
         <button className="bottom-nav-item" onClick={() => setShowPoisModal(true)}>

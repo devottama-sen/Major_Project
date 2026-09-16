@@ -279,6 +279,98 @@ export function findNearest(typeQuery, startNodeId) {
  */
 const PIXELS_PER_SECOND = 80;
 
+function generateTurnInstructions(route) {
+  if (!route || route.length < 2) return [];
+  const SCALE_METERS = 0.05; // 1 unit ≈ 0.05 meters
+  const instructions = [];
+
+  for (let i = 0; i < route.length - 1; i++) {
+    const curr = route[i];
+    const next = route[i + 1];
+    const dx = next.x - curr.x;
+    const dy = next.y - curr.y;
+    const distPx = Math.hypot(dx, dy);
+    const distMeters = Math.max(1, Math.round(distPx * SCALE_METERS));
+
+    let action = "STRAIGHT";
+    let icon = "straight";
+    let text = `Walk ${distMeters}m straight towards ${next.label || next.type}`;
+
+    if (i > 0) {
+      const prev = route[i - 1];
+      const v1x = curr.x - prev.x;
+      const v1y = curr.y - prev.y;
+      const angle1 = Math.atan2(v1y, v1x);
+      const angle2 = Math.atan2(dy, dx);
+      let diff = (angle2 - angle1) * (180 / Math.PI);
+      
+      while (diff > 180) diff -= 360;
+      while (diff < -180) diff += 360;
+
+      if (curr.type === "lift") {
+        action = "LIFT";
+        icon = "lift";
+        text = `Take ${curr.label || "Lift"} to next floor section`;
+      } else if (curr.type === "stairs") {
+        action = "STAIRS";
+        icon = "stairs";
+        text = `Use ${curr.label || "Stairs"}`;
+      } else if (diff > 25 && diff < 70) {
+        action = "SLIGHT_RIGHT";
+        icon = "slight-right";
+        text = `Bear right towards ${next.label || "corridor"}`;
+      } else if (diff >= 70 && diff <= 120) {
+        action = "TURN_RIGHT";
+        icon = "turn-right";
+        text = `Turn right towards ${next.label || "corridor"}`;
+      } else if (diff > 120) {
+        action = "SHARP_RIGHT";
+        icon = "sharp-right";
+        text = `Sharp right turn ahead`;
+      } else if (diff < -25 && diff > -70) {
+        action = "SLIGHT_LEFT";
+        icon = "slight-left";
+        text = `Bear left towards ${next.label || "corridor"}`;
+      } else if (diff <= -70 && diff >= -120) {
+        action = "TURN_LEFT";
+        icon = "turn-left";
+        text = `Turn left towards ${next.label || "corridor"}`;
+      } else if (diff < -120) {
+        action = "SHARP_LEFT";
+        icon = "sharp-left";
+        text = `Sharp left turn ahead`;
+      }
+    }
+
+    instructions.push({
+      stepIndex: i,
+      fromNodeId: curr.nodeId,
+      toNodeId: next.nodeId,
+      action,
+      icon,
+      text,
+      distanceMeters: distMeters,
+      targetLabel: next.label || next.type,
+      targetType: next.type,
+    });
+  }
+
+  const destNode = route[route.length - 1];
+  instructions.push({
+    stepIndex: route.length - 1,
+    fromNodeId: destNode.nodeId,
+    toNodeId: destNode.nodeId,
+    action: "ARRIVED",
+    icon: "arrived",
+    text: `You have arrived at ${destNode.label || destNode.type}!`,
+    distanceMeters: 0,
+    targetLabel: destNode.label || destNode.type,
+    targetType: destNode.type,
+  });
+
+  return instructions;
+}
+
 function buildRouteResult(startNodeId, destNodeId, path, distance) {
   const destNode = nodes[destNodeId];
   const seconds = distance / PIXELS_PER_SECOND;
@@ -298,6 +390,8 @@ function buildRouteResult(startNodeId, destNodeId, path, distance) {
     .filter(n => ['lift', 'stairs', 'entrance'].includes(n.type) && n.label)
     .map(n => n.label);
 
+  const turnInstructions = generateTurnInstructions(route);
+
   return {
     success: true,
     destination: {
@@ -311,6 +405,7 @@ function buildRouteResult(startNodeId, destNodeId, path, distance) {
     distance: Math.round(distance),
     estimatedMinutes,
     landmarks,
+    turnInstructions,
   };
 }
 

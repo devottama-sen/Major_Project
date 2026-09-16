@@ -5,6 +5,8 @@ import { defineConfig } from 'vite'
 export default defineConfig({
   plugins: [react()],
   server: {
+    host: true, // Listens on 0.0.0.0 for LAN / Wi-Fi access
+    port: 5173,
     proxy: {
       // Forward all /api requests to the Express backend
       '/api': {
